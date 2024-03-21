@@ -427,7 +427,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "gemfed"
+name = "gemfreely"
 version = "0.1.0"
 dependencies = [
  "anyhow",
