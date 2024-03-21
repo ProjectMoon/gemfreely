@@ -38,9 +38,10 @@ fn parse_gemfeed_gemtext(base_url: &Url, gemfeed: &GemtextAst) -> Result<Vec<Gem
         .collect()
 }
 
-fn parse_gemfeed_atom(feed: &str, settings: &GemfeedParserSettings) -> Result<Vec<GemfeedEntry>> {
-    let feed = feed.parse::<AtomFeed>()?;
-
+fn parse_gemfeed_atom(
+    feed: &AtomFeed,
+    settings: &GemfeedParserSettings,
+) -> Result<Vec<GemfeedEntry>> {
     feed.entries()
         .into_iter()
         .map(|entry| GemfeedEntry::from_atom(entry, &settings.atom_date_format))
@@ -75,9 +76,11 @@ impl From<Cow<'_, str>> for GemfeedType {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct Gemfeed {
     url: Url,
+    title: String,
     entries: Vec<GemfeedEntry>,
 }
 
@@ -111,9 +114,10 @@ impl Default for GemfeedParserSettings<'_> {
 
 #[allow(dead_code)]
 impl Gemfeed {
-    pub fn new(url: &Url, entries: Vec<GemfeedEntry>) -> Gemfeed {
+    pub fn new(url: &Url, title: &str, entries: Vec<GemfeedEntry>) -> Gemfeed {
         Gemfeed {
             url: url.clone(),
+            title: title.to_owned(),
             entries,
         }
     }
@@ -140,8 +144,10 @@ impl Gemfeed {
         settings: &GemfeedParserSettings,
     ) -> Result<Gemfeed> {
         if let Some(content) = resp.content() {
-            let entries = parse_gemfeed_atom(content, settings)?;
-            Ok(Self::new(url, entries))
+            let feed = content.parse::<AtomFeed>()?;
+            let entries = parse_gemfeed_atom(&feed, settings)?;
+            let title = feed.title();
+            Ok(Self::new(url, title, entries))
         } else {
             Err(anyhow!("Not a valid Atom Gemfeed"))
         }
@@ -153,12 +159,24 @@ impl Gemfeed {
             .to_owned()
             .map(|text| GemtextAst::from_value(&text));
 
-        // TODO should be some actual validation of the feed here.
         if let Some(ref feed) = maybe_feed {
-            let entries = parse_gemfeed_gemtext(url, feed)?;
-            Ok(Self::new(url, entries))
+            Self::load_from_ast(url, feed)
         } else {
-            Err(anyhow!("Not a valid Gemtext Gemfeed"))
+            Err(anyhow!("Not a valid Gemfeed - could not parse gemtext"))
+        }
+    }
+
+    fn load_from_ast(url: &Url, feed: &GemtextAst) -> Result<Gemfeed> {
+        let feed_title = feed.inner().iter().find_map(|node| match node {
+            GemtextNode::Heading { level, text } if *level == (1 as usize) => Some(text),
+            _ => None,
+        });
+
+        if let Some(title) = feed_title {
+            let entries = parse_gemfeed_gemtext(url, feed)?;
+            Ok(Self::new(url, title, entries))
+        } else {
+            Err(anyhow!("Not a valid Gemfeed: missing title"))
         }
     }
 
@@ -209,7 +227,7 @@ pub struct GemfeedEntry {
 impl GemfeedEntry {
     pub fn from_ast(base_url: &Url, node: &GemtextNode) -> Result<GemfeedEntry> {
         let link = GemfeedLink::try_from(node)?;
-        // Gemfeeds have only the date--lock to 12pm UTC as a guess.
+        // Gemfeeds have only the date--according to spec, it should be 12pm UTC.
         println!("{:?}", link.published);
         let publish_date = link
             .published
@@ -392,6 +410,29 @@ mod gemfeed_tests {
     use super::*;
 
     #[test]
+    fn parse_gemfeed_invalid_if_no_title() -> Result<()> {
+        let gemfeed: String = r#"
+        This is a gemfeed without a title.
+        => atom.xml Atom Feed
+
+        ## Posts
+
+        => post2.gmi 2023-03-05 Post 2
+        => post1.gmi 2023-02-01 Post 1
+        "#
+        .lines()
+        .map(|line| line.trim_start())
+        .map(|line| format!("{}\n", line))
+        .collect();
+
+        let base_url = Url::parse("gemini://example.com/posts")?;
+        let ast = GemtextAst::from_string(gemfeed);
+        let result = Gemfeed::load_from_ast(&base_url, &ast);
+        assert!(matches!(result, Err(_)));
+        Ok(())
+    }
+
+    #[test]
     fn parse_gemfeed_ignores_non_post_links() -> Result<()> {
         let gemfeed: String = r#"
         # My Gemfeed
@@ -441,7 +482,7 @@ mod gemfeed_tests {
     }
 
     #[test]
-    fn convert_gemfeed_success() -> Result<()> {
+    fn convert_gemfeed_links_success() -> Result<()> {
         let gemfeed_links: String = r#"
         => post2.gmi 2023-03-05 Post 2
         => post1.gmi 2023-02-01 Post 1
