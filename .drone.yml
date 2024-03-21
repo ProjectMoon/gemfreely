@@ -6,7 +6,7 @@ steps:
   image: rust:1.76-slim
   commands:
   - rustup component add rustfmt
-  - cargo install --locked cargo deny
+  - cargo install --locked cargo-deny
   - cargo build
   - cargo test --verbose
   - cargo deny check licenses
