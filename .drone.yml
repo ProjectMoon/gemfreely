@@ -3,10 +3,8 @@ name: build-and-test
 
 steps:
 - name: test
-  image: rust:1.76-slim
+  image: git.agnos.is/projectmoon/gemfreely-build
   commands:
-  - rustup component add rustfmt
-  - cargo install --locked cargo-deny
   - cargo build
   - cargo test --verbose
   - cargo deny check licenses
