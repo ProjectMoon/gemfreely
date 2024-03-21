@@ -29,7 +29,7 @@ fn is_gemfeed_post_link(node: &GemtextNode) -> bool {
     }
 }
 
-fn parse_gemfeed_gemtext(base_url: &Url, gemfeed: &GemtextAst) -> Result<Vec<GemfeedEntry>> {
+fn parse_gemfeed(base_url: &Url, gemfeed: &GemtextAst) -> Result<Vec<GemfeedEntry>> {
     gemfeed
         .inner()
         .into_iter()
@@ -38,7 +38,7 @@ fn parse_gemfeed_gemtext(base_url: &Url, gemfeed: &GemtextAst) -> Result<Vec<Gem
         .collect()
 }
 
-fn parse_gemfeed_atom(
+fn parse_atom(
     feed: &AtomFeed,
     settings: &GemfeedParserSettings,
 ) -> Result<Vec<GemfeedEntry>> {
@@ -145,7 +145,7 @@ impl Gemfeed {
     ) -> Result<Gemfeed> {
         if let Some(content) = resp.content() {
             let feed = content.parse::<AtomFeed>()?;
-            let entries = parse_gemfeed_atom(&feed, settings)?;
+            let entries = parse_atom(&feed, settings)?;
             let title = feed.title();
             Ok(Self::new(url, title, entries))
         } else {
@@ -173,7 +173,7 @@ impl Gemfeed {
         });
 
         if let Some(title) = feed_title {
-            let entries = parse_gemfeed_gemtext(url, feed)?;
+            let entries = parse_gemfeed(url, feed)?;
             Ok(Self::new(url, title, entries))
         } else {
             Err(anyhow!("Not a valid Gemfeed: missing title"))
@@ -452,7 +452,7 @@ mod gemfeed_tests {
 
         let base_url = Url::parse("gemini://example.com/posts")?;
         let ast = GemtextAst::from_string(gemfeed);
-        let results = parse_gemfeed_gemtext(&base_url, &ast)?;
+        let results = parse_gemfeed(&base_url, &ast)?;
         assert_eq!(results.len(), 2);
         Ok(())
     }
@@ -476,7 +476,7 @@ mod gemfeed_tests {
 
         let base_url = Url::parse("gemini://example.com/posts")?;
         let ast = GemtextAst::from_string(gemfeed);
-        let results = parse_gemfeed_gemtext(&base_url, &ast)?;
+        let results = parse_gemfeed(&base_url, &ast)?;
         assert_eq!(results.len(), 2);
         Ok(())
     }
