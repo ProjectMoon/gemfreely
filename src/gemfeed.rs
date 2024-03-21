@@ -13,24 +13,23 @@ use germ::convert::{self as germ_convert, Target};
 use germ::request::{request as gemini_request, Response as GeminiResponse};
 use url::Url;
 
-fn parse_gemfeed_gemtext(base_url: &Url, gemfeed: &GemtextAst) -> Vec<GemfeedEntry> {
+use crate::Cli;
+
+fn parse_gemfeed_gemtext(base_url: &Url, gemfeed: &GemtextAst) -> Result<Vec<GemfeedEntry>> {
     gemfeed
         .inner()
         .into_iter()
-        .filter_map(|node| GemfeedEntry::from_ast(base_url, node))
+        .map(|node| GemfeedEntry::from_ast(base_url, node))
         .collect()
 }
 
-fn parse_gemfeed_atom(feed: &str) -> Result<Vec<GemfeedEntry>> {
+fn parse_gemfeed_atom(feed: &str, settings: &GemfeedParserSettings) -> Result<Vec<GemfeedEntry>> {
     let feed = feed.parse::<AtomFeed>()?;
 
-    let entries = feed
-        .entries()
+    feed.entries()
         .into_iter()
-        .filter_map(|entry| GemfeedEntry::from_atom(entry))
-        .collect::<Vec<_>>();
-
-    Ok(entries)
+        .map(|entry| GemfeedEntry::from_atom(entry, &settings.atom_date_format))
+        .collect()
 }
 
 enum GemfeedType {
@@ -67,6 +66,30 @@ pub struct Gemfeed {
     entries: Vec<GemfeedEntry>,
 }
 
+/// Settings for controlling how the Gemfeed is parsed.
+pub struct GemfeedParserSettings<'a> {
+    atom_date_format: &'a str,
+}
+
+impl<'a> From<&'a Cli> for GemfeedParserSettings<'a> {
+    fn from(cli: &'a Cli) -> Self {
+        cli.date_format
+            .as_deref()
+            .map(|date_fmt| GemfeedParserSettings {
+                atom_date_format: date_fmt,
+            })
+            .unwrap_or(Self::default())
+    }
+}
+
+impl Default for GemfeedParserSettings<'_> {
+    fn default() -> Self {
+        GemfeedParserSettings {
+            atom_date_format: "%Y-%m-%d %H:%M:%S %:z",
+        }
+    }
+}
+
 #[allow(dead_code)]
 impl Gemfeed {
     pub fn new(url: &Url, entries: Vec<GemfeedEntry>) -> Gemfeed {
@@ -77,10 +100,14 @@ impl Gemfeed {
     }
 
     pub fn load(url: &Url) -> Result<Gemfeed> {
+        Self::load_with_settings(url, &GemfeedParserSettings::default())
+    }
+
+    pub fn load_with_settings(url: &Url, settings: &GemfeedParserSettings) -> Result<Gemfeed> {
         let resp = gemini_request(url)?;
         match GemfeedType::from(resp.meta()) {
             GemfeedType::Gemtext => Self::load_from_gemtext(url, resp),
-            GemfeedType::Atom => Self::load_from_atom(url, resp),
+            GemfeedType::Atom => Self::load_from_atom(url, resp, &settings),
             _ => Err(anyhow!(
                 "Unrecognized Gemfeed mime type [meta={}]",
                 resp.meta()
@@ -88,9 +115,13 @@ impl Gemfeed {
         }
     }
 
-    fn load_from_atom(url: &Url, resp: GeminiResponse) -> Result<Gemfeed> {
+    fn load_from_atom(
+        url: &Url,
+        resp: GeminiResponse,
+        settings: &GemfeedParserSettings,
+    ) -> Result<Gemfeed> {
         if let Some(content) = resp.content() {
-            let entries = parse_gemfeed_atom(content)?;
+            let entries = parse_gemfeed_atom(content, settings)?;
             Ok(Self::new(url, entries))
         } else {
             Err(anyhow!("Not a valid Atom Gemfeed"))
@@ -105,7 +136,7 @@ impl Gemfeed {
 
         // TODO should be some actual validation of the feed here.
         if let Some(ref feed) = maybe_feed {
-            let entries = parse_gemfeed_gemtext(url, feed);
+            let entries = parse_gemfeed_gemtext(url, feed)?;
             Ok(Self::new(url, entries))
         } else {
             Err(anyhow!("Not a valid Gemtextg Gemfeed"))
@@ -157,37 +188,38 @@ pub struct GemfeedEntry {
 
 #[allow(dead_code)]
 impl GemfeedEntry {
-    pub fn from_ast(base_url: &Url, node: &GemtextNode) -> Option<GemfeedEntry> {
-        let link = GemfeedLink::try_from(node).ok()?;
+    pub fn from_ast(base_url: &Url, node: &GemtextNode) -> Result<GemfeedEntry> {
+        let link = GemfeedLink::try_from(node)?;
         // Gemfeeds have only the date--lock to 12pm UTC as a guess.
         let publish_date = link
             .published
-            .map(|date| NaiveDateTime::parse_from_str(&date, "%Y-%m-%d"))?
-            .ok()?
-            .with_hour(12)?
+            .map(|date| NaiveDateTime::parse_from_str(&date, "%Y-%m-%d"))
+            .ok_or(anyhow!("No publish date found"))??
+            .with_hour(12)
+            .unwrap()
             .and_utc();
 
-        Some(GemfeedEntry {
+        Ok(GemfeedEntry {
             title: link.title,
-            url: base_url.join(&link.path).ok()?,
+            url: base_url.join(&link.path)?,
             slug: link.slug,
             published: Some(publish_date),
             body: OnceCell::new(),
         })
     }
 
-    pub fn from_atom(entry: &AtomEntry) -> Option<GemfeedEntry> {
-        let link = GemfeedLink::try_from(entry).ok()?;
+    pub fn from_atom(entry: &AtomEntry, date_format: &str) -> Result<GemfeedEntry> {
+        let link = GemfeedLink::try_from(entry)?;
 
         let publish_date = link
             .published
-            .map(|date| DateTime::parse_from_str(&date, "%Y-%m-%d %H:%M:%S %:z"))?
-            .ok()?
+            .ok_or(anyhow!("No publish date found"))
+            .map(|date| DateTime::parse_from_str(&date, date_format))??
             .to_utc();
 
-        Some(GemfeedEntry {
+        Ok(GemfeedEntry {
             title: link.title,
-            url: Url::parse(&link.path).ok()?,
+            url: Url::parse(&link.path)?,
             slug: link.slug,
             published: Some(publish_date),
             body: OnceCell::new(),

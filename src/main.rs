@@ -1,5 +1,6 @@
 use crate::{gemfeed::Gemfeed, wf::WriteFreelyCredentials};
 use clap::{Parser, Subcommand};
+use gemfeed::GemfeedParserSettings;
 use std::collections::HashSet;
 use url::Url;
 
@@ -20,6 +21,10 @@ struct Cli {
     /// WriteFreely blog name/alias. Usually the same as username.
     #[arg(short = 'a', long, value_name = "ALIAS")]
     wf_alias: Option<String>,
+
+    /// Optional date format override for parsing Gemlog Atom publish dates.
+    #[arg(long, value_name = "FMT")]
+    date_format: Option<String>,
 
     #[command(subcommand)]
     command: Option<Command>,
@@ -101,15 +106,17 @@ async fn sync(
         .as_deref()
         .expect("WriteFreely access token required");
 
+    let settings = GemfeedParserSettings::from(cli);
     let gemfeed_url = Url::parse(gemlog_url)?;
     let wf_url = Url::parse(wf_url)?;
 
     let wf_creds = WriteFreelyCredentials::AccessToken(wf_token);
     let wf_alias = cli.wf_alias.as_deref().expect("WriteFreely Alias required");
     let wf_client = wf::WriteFreely::new(&wf_url, wf_alias, &wf_creds).await?;
-    let mut gemfeed = Gemfeed::load(&gemfeed_url)?;
 
+    let mut gemfeed = Gemfeed::load_with_settings(&gemfeed_url, &settings)?;
     sync_gemlog(&config, &mut gemfeed, &wf_client).await?;
+
     Ok(())
 }
 
