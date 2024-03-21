@@ -1,4 +1,4 @@
-use chrono::{DateTime, NaiveDateTime, Timelike, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use once_cell::sync::OnceCell;
 use regex::Regex;
 use std::borrow::Cow;
@@ -19,6 +19,7 @@ fn parse_gemfeed_gemtext(base_url: &Url, gemfeed: &GemtextAst) -> Result<Vec<Gem
     gemfeed
         .inner()
         .into_iter()
+        .filter(|node| matches!(node, GemtextNode::Link { .. }))
         .map(|node| GemfeedEntry::from_ast(base_url, node))
         .collect()
 }
@@ -143,7 +144,7 @@ impl Gemfeed {
             let entries = parse_gemfeed_gemtext(url, feed)?;
             Ok(Self::new(url, entries))
         } else {
-            Err(anyhow!("Not a valid Gemtextg Gemfeed"))
+            Err(anyhow!("Not a valid Gemtext Gemfeed"))
         }
     }
 
@@ -195,11 +196,12 @@ impl GemfeedEntry {
     pub fn from_ast(base_url: &Url, node: &GemtextNode) -> Result<GemfeedEntry> {
         let link = GemfeedLink::try_from(node)?;
         // Gemfeeds have only the date--lock to 12pm UTC as a guess.
+        println!("{:?}", link.published);
         let publish_date = link
             .published
-            .map(|date| NaiveDateTime::parse_from_str(&date, "%Y-%m-%d"))
+            .map(|date| NaiveDate::parse_from_str(&date, "%Y-%m-%d"))
             .ok_or(anyhow!("No publish date found"))??
-            .with_hour(12)
+            .and_hms_opt(12, 0, 0)
             .unwrap()
             .and_utc();
 
@@ -309,9 +311,16 @@ impl TryFrom<&GemtextNode> for GemfeedLink {
                 _ => None,
             };
 
+            // Strip the date from the title, if possible.
+            let title = published
+                .as_ref()
+                .and_then(|date| title.strip_prefix(&*date))
+                .map(|text| text.trim())
+                .unwrap_or(&title);
+
             let maybe_slug = stem.map(|s| s.to_string_lossy());
             maybe_slug.map(|slug| GemfeedLink {
-                title,
+                title: title.to_string(),
                 path,
                 published,
                 slug: slug.to_string(),
@@ -365,7 +374,135 @@ impl TryFrom<&AtomEntry> for GemfeedLink {
 }
 
 #[cfg(test)]
-mod tests {
+mod gemfeed_tests {
+    use super::*;
+
+    #[test]
+    fn parse_gemfeed_ignores_non_links() -> Result<()> {
+        let gemfeed: String = r#"
+        # My Gemfeed
+
+        This is a gemfeed.
+
+        ## Posts
+
+        => post2.gmi 2023-03-05 Post 2
+        => post1.gmi 2023-02-01 Post 1
+        "#
+        .lines()
+        .map(|line| line.trim_start())
+        .map(|line| format!("{}\n", line))
+        .collect();
+
+        let base_url = Url::parse("gemini://example.com/posts")?;
+        let ast = GemtextAst::from_string(gemfeed);
+        let results = parse_gemfeed_gemtext(&base_url, &ast)?;
+        assert_eq!(results.len(), 2);
+        Ok(())
+    }
+
+    #[test]
+    fn convert_gemfeed_success() -> Result<()> {
+        let gemfeed_links: String = r#"
+        => post2.gmi 2023-03-05 Post 2
+        => post1.gmi 2023-02-01 Post 1
+        "#
+        .lines()
+        .map(|line| line.trim_start())
+        .map(|line| format!("{}\n", line))
+        .collect();
+
+        let ast = GemtextAst::from_string(gemfeed_links);
+
+        let result = ast
+            .inner()
+            .into_iter()
+            .map(|node| GemfeedLink::try_from(node))
+            .flat_map(|res| res.ok())
+            .collect::<Vec<_>>();
+
+        let expected = vec![
+            GemfeedLink {
+                path: "post2.gmi".into(),
+                slug: "post2".into(),
+                title: "Post 2".into(),
+                published: Some("2023-03-05".into()),
+            },
+            GemfeedLink {
+                path: "post1.gmi".into(),
+                slug: "post1".into(),
+                title: "Post 1".into(),
+                published: Some("2023-02-01".into()),
+            },
+        ];
+
+        assert_eq!(expected, result);
+        Ok(())
+    }
+
+    fn slug_test(gemtext: String, expected_slugs: Vec<String>) -> Result<()> {
+        let ast = GemtextAst::from_string(gemtext);
+
+        let result = ast
+            .inner()
+            .into_iter()
+            .map(|node| GemfeedLink::try_from(node))
+            .flat_map(|res| res.ok())
+            .map(|link| link.slug)
+            .collect::<Vec<_>>();
+
+        assert_eq!(expected_slugs, result);
+        Ok(())
+    }
+
+    #[test]
+    fn convert_gemfeed_slug_with_slash() -> Result<()> {
+        let gemfeed_links: String = r#"
+        => ./post2 2023-03-05 Post 2
+        => ./post1 2023-02-01 Post 1
+        "#
+        .lines()
+        .map(|line| line.trim_start())
+        .map(|line| format!("{}\n", line))
+        .collect();
+
+        let expected = vec!["post2".into(), "post1".into()];
+        slug_test(gemfeed_links, expected)
+    }
+
+    #[test]
+    fn convert_gemfeed_slug_no_ext() -> Result<()> {
+        let gemfeed_links: String = r#"
+        => post2 2023-03-05 Post 2
+        => post1 2023-02-01 Post 1
+        "#
+        .lines()
+        .map(|line| line.trim_start())
+        .map(|line| format!("{}\n", line))
+        .collect();
+
+        let expected = vec!["post2".into(), "post1".into()];
+        slug_test(gemfeed_links, expected)
+    }
+
+    #[test]
+    fn convert_gemfeed_slug_no_ext_with_slash() -> Result<()> {
+        let gemfeed_links: String = r#"
+        => ./post2 2023-03-05 Post 2
+        => ./post1 2023-02-01 Post 1
+        "#
+        .lines()
+        .map(|line| line.trim_start())
+        .map(|line| format!("{}\n", line))
+        .collect();
+
+        let expected = vec!["post2".into(), "post1".into()];
+        slug_test(gemfeed_links, expected)
+    }
+}
+
+#[cfg(test)]
+mod atom_tests {
     use atom_syndication::FixedDateTime;
     use once_cell::sync::Lazy;
 
