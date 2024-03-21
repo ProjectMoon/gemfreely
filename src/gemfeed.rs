@@ -178,9 +178,10 @@ impl GemfeedEntry {
 
     pub fn from_atom(entry: &AtomEntry) -> Option<GemfeedEntry> {
         let link = GemfeedLink::try_from(entry).ok()?;
+
         let publish_date = link
             .published
-            .map(|date| DateTime::parse_from_rfc3339(&date))?
+            .map(|date| DateTime::parse_from_str(&date, "%Y-%m-%d %H:%M:%S %:z"))?
             .ok()?
             .to_utc();
 
