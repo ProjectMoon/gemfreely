@@ -71,6 +71,10 @@ pub struct GemfeedParserSettings<'a> {
     atom_date_format: &'a str,
 }
 
+impl GemfeedParserSettings<'_> {
+    const DEFAULT_DATE_FORMAT: &'static str = "%Y-%m-%d %H:%M:%S %:z";
+}
+
 impl<'a> From<&'a Cli> for GemfeedParserSettings<'a> {
     fn from(cli: &'a Cli) -> Self {
         cli.date_format
@@ -85,7 +89,7 @@ impl<'a> From<&'a Cli> for GemfeedParserSettings<'a> {
 impl Default for GemfeedParserSettings<'_> {
     fn default() -> Self {
         GemfeedParserSettings {
-            atom_date_format: "%Y-%m-%d %H:%M:%S %:z",
+            atom_date_format: Self::DEFAULT_DATE_FORMAT,
         }
     }
 }
@@ -276,6 +280,7 @@ impl GemfeedEntry {
     }
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
 struct GemfeedLink {
     path: String,
     title: String,
@@ -356,5 +361,117 @@ impl TryFrom<&AtomEntry> for GemfeedLink {
         } else {
             Err(anyhow!("Slug could not be calculated: [url={}]", link_url))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use atom_syndication::FixedDateTime;
+    use once_cell::sync::Lazy;
+
+    use super::*;
+
+    const ATOM_DATE_FORMAT: &'static str = GemfeedParserSettings::DEFAULT_DATE_FORMAT;
+
+    static ATOM_DATE: Lazy<FixedDateTime> = Lazy::new(|| {
+        FixedDateTime::parse_from_str("2024-03-01 20:30:00 +01:00", ATOM_DATE_FORMAT).unwrap()
+    });
+
+    #[test]
+    fn convert_atom_entry_success() {
+        let entry = AtomEntry {
+            title: "TestTitle".into(),
+            published: Some(ATOM_DATE.to_owned()),
+            links: vec![atom_syndication::Link {
+                href: "gemini://example.com/posts/test.gmi".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let result = GemfeedLink::try_from(&entry);
+        let expected = GemfeedLink {
+            path: "gemini://example.com/posts/test.gmi".into(),
+            published: Some("2024-03-01 20:30:00 +01:00".to_string()),
+            slug: "test".into(),
+            title: "TestTitle".into(),
+        };
+
+        assert_eq!(result.ok(), Some(expected));
+    }
+
+    #[test]
+    fn convert_atom_entry_no_file_ext() {
+        let entry = AtomEntry {
+            title: "TestTitle".into(),
+            published: Some(ATOM_DATE.to_owned()),
+            links: vec![atom_syndication::Link {
+                href: "gemini://example.com/posts/test".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let result = GemfeedLink::try_from(&entry);
+        let expected = GemfeedLink {
+            path: "gemini://example.com/posts/test".into(),
+            published: Some("2024-03-01 20:30:00 +01:00".to_string()),
+            slug: "test".into(),
+            title: "TestTitle".into(),
+        };
+
+        assert_eq!(result.ok(), Some(expected));
+    }
+
+    #[test]
+    fn convert_atom_entry_no_date() {
+        let entry = AtomEntry {
+            title: "TestTitle".into(),
+            published: None,
+            links: vec![atom_syndication::Link {
+                href: "gemini://example.com/posts/test.gmi".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let result = GemfeedLink::try_from(&entry);
+        let expected = GemfeedLink {
+            path: "gemini://example.com/posts/test.gmi".into(),
+            published: None,
+            slug: "test".into(),
+            title: "TestTitle".into(),
+        };
+
+        assert_eq!(result.ok(), Some(expected));
+    }
+
+    #[test]
+    fn convert_atom_entry_no_link() {
+        let entry = AtomEntry {
+            title: "TestTitle".into(),
+            published: None,
+            links: vec![],
+            ..Default::default()
+        };
+
+        let result = GemfeedLink::try_from(&entry);
+        assert!(matches!(result, Err(_)));
+    }
+
+    #[test]
+    fn convert_atom_entry_invalid_link() {
+        let entry = AtomEntry {
+            title: "TestTitle".into(),
+            published: None,
+            links: vec![atom_syndication::Link {
+                href: "example.com/posts/test.gmi".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let result = GemfeedLink::try_from(&entry);
+        assert!(matches!(result, Err(_)));
     }
 }
