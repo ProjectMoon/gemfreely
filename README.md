@@ -1,5 +1,9 @@
 # Gemfreely
 
+*Main Repo: [Agnos.is Git][5]*
+
+*Mirrored at [GitHub][4]*
+
 Sync Gemini protocol Gemlogs to WriteFreely instances.
 
 ## Prerequisites, and who is this for?
@@ -105,6 +109,15 @@ gemfreely --wf-alias="youralias"
 This will revoke the access token on WriteFreely, and a new one will
 be required to use the `sync` command.
 
+## Reporting Issues
+
+Issues can be reported at either GitHub or the canonical repository at https://git.agnos.is/.
+
+* [Agnos.is Git][5]
+* [GitHub][4]
+
 [1]: https://geminiprotocol.net/
 [2]: https://writefreely.org/
 [3]: https://en.wikipedia.org/wiki/ActivityPub
+[4]: https://github.com/ProjectMoon/gemfreely
+[5]: https://git.agnos.is/projectmoon/gemfreely
