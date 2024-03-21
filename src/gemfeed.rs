@@ -1,5 +1,5 @@
 use chrono::{DateTime, NaiveDate, Utc};
-use once_cell::sync::OnceCell;
+use once_cell::sync::{Lazy, OnceCell};
 use regex::Regex;
 use std::borrow::Cow;
 use std::path::PathBuf;
@@ -15,11 +15,25 @@ use url::Url;
 
 use crate::Cli;
 
+static GEMFEED_POST_REGEX: Lazy<regex::Regex> =
+    Lazy::new(|| Regex::new(r#"(\d\d\d\d-\d\d-\d\d)"#).unwrap());
+
+fn is_gemfeed_post_link(node: &GemtextNode) -> bool {
+    if let GemtextNode::Link {
+        text: Some(title), ..
+    } = node
+    {
+        GEMFEED_POST_REGEX.is_match_at(title, 0)
+    } else {
+        false
+    }
+}
+
 fn parse_gemfeed_gemtext(base_url: &Url, gemfeed: &GemtextAst) -> Result<Vec<GemfeedEntry>> {
     gemfeed
         .inner()
         .into_iter()
-        .filter(|node| matches!(node, GemtextNode::Link { .. }))
+        .filter(|node| is_gemfeed_post_link(node))
         .map(|node| GemfeedEntry::from_ast(base_url, node))
         .collect()
 }
@@ -376,6 +390,31 @@ impl TryFrom<&AtomEntry> for GemfeedLink {
 #[cfg(test)]
 mod gemfeed_tests {
     use super::*;
+
+    #[test]
+    fn parse_gemfeed_ignores_non_post_links() -> Result<()> {
+        let gemfeed: String = r#"
+        # My Gemfeed
+
+        This is a gemfeed.
+        => atom.xml Atom Feed
+
+        ## Posts
+
+        => post2.gmi 2023-03-05 Post 2
+        => post1.gmi 2023-02-01 Post 1
+        "#
+        .lines()
+        .map(|line| line.trim_start())
+        .map(|line| format!("{}\n", line))
+        .collect();
+
+        let base_url = Url::parse("gemini://example.com/posts")?;
+        let ast = GemtextAst::from_string(gemfeed);
+        let results = parse_gemfeed_gemtext(&base_url, &ast)?;
+        assert_eq!(results.len(), 2);
+        Ok(())
+    }
 
     #[test]
     fn parse_gemfeed_ignores_non_links() -> Result<()> {
