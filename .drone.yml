@@ -8,3 +8,24 @@ steps:
   - cargo build
   - cargo test --verbose
   - cargo deny check licenses
+
+- name: build-release
+  image: git.agnos.is/projectmoon/gemfreely-build
+  when:
+    ref:
+    - refs/tags/v*
+  commands:
+  - RUSTFLAGS="-C target-feature=+crt-static" cargo build --target x86_64-unknown-linux-gnu --release
+
+- name: push-release
+  image: plugins/gitea-release
+  environment:
+    RELEASE_PUSH_KEY:
+      from_secret: release_push_key
+  when:
+    ref:
+    - refs/tags/v*
+  settings:
+    api_key: ${RELEASE_PUSH_KEY}
+    base_url: https://git.agnos.is/
+    files: target/x86_64-unknown-linux-gnu/release/gemfreely
