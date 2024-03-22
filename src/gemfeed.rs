@@ -19,13 +19,11 @@ static GEMFEED_POST_REGEX: Lazy<regex::Regex> =
     Lazy::new(|| Regex::new(r#"(\d\d\d\d-\d\d-\d\d)"#).unwrap());
 
 fn is_gemfeed_post_link(node: &GemtextNode) -> bool {
-    if let GemtextNode::Link {
-        text: Some(title), ..
-    } = node
-    {
-        GEMFEED_POST_REGEX.is_match_at(title, 0)
-    } else {
-        false
+    match node {
+        GemtextNode::Link {
+            text: Some(title), ..
+        } => GEMFEED_POST_REGEX.is_match_at(title, 0),
+        _ => false,
     }
 }
 
@@ -34,14 +32,11 @@ fn parse_gemfeed(base_url: &Url, gemfeed: &GemtextAst) -> Result<Vec<GemfeedEntr
         .inner()
         .into_iter()
         .filter(|node| is_gemfeed_post_link(node))
-        .map(|node| GemfeedEntry::from_ast(base_url, node))
+        .map(|node| GemfeedEntry::from_gemtext(base_url, node))
         .collect()
 }
 
-fn parse_atom(
-    feed: &AtomFeed,
-    settings: &GemfeedParserSettings,
-) -> Result<Vec<GemfeedEntry>> {
+fn parse_atom(feed: &AtomFeed, settings: &GemfeedParserSettings) -> Result<Vec<GemfeedEntry>> {
     feed.entries()
         .into_iter()
         .map(|entry| GemfeedEntry::from_atom(entry, &settings.atom_date_format))
@@ -129,7 +124,7 @@ impl Gemfeed {
     pub fn load_with_settings(url: &Url, settings: &GemfeedParserSettings) -> Result<Gemfeed> {
         let resp = gemini_request(url)?;
         match GemfeedType::from(resp.meta()) {
-            GemfeedType::Gemtext => Self::load_from_gemtext(url, resp),
+            GemfeedType::Gemtext => Self::load_from_gemfeed(url, resp),
             GemfeedType::Atom => Self::load_from_atom(url, resp, &settings),
             _ => Err(anyhow!(
                 "Unrecognized Gemfeed mime type [meta={}]",
@@ -153,16 +148,15 @@ impl Gemfeed {
         }
     }
 
-    fn load_from_gemtext(url: &Url, resp: GeminiResponse) -> Result<Gemfeed> {
+    fn load_from_gemfeed(url: &Url, resp: GeminiResponse) -> Result<Gemfeed> {
         let maybe_feed = resp
             .content()
             .to_owned()
             .map(|text| GemtextAst::from_value(&text));
 
-        if let Some(ref feed) = maybe_feed {
-            Self::load_from_ast(url, feed)
-        } else {
-            Err(anyhow!("Not a valid Gemfeed - could not parse gemtext"))
+        match maybe_feed {
+            Some(ref feed) => Self::load_from_ast(url, feed),
+            _ => Err(anyhow!("Not a valid Gemfeed - could not parse gemtext")),
         }
     }
 
@@ -225,10 +219,10 @@ pub struct GemfeedEntry {
 
 #[allow(dead_code)]
 impl GemfeedEntry {
-    pub fn from_ast(base_url: &Url, node: &GemtextNode) -> Result<GemfeedEntry> {
+    pub fn from_gemtext(base_url: &Url, node: &GemtextNode) -> Result<GemfeedEntry> {
         let link = GemfeedLink::try_from(node)?;
-        // Gemfeeds have only the date--according to spec, it should be 12pm UTC.
-        println!("{:?}", link.published);
+        // Gemfeeds have only the date--according to spec, it should
+        // be 12pm UTC.
         let publish_date = link
             .published
             .map(|date| NaiveDate::parse_from_str(&date, "%Y-%m-%d"))
@@ -289,12 +283,12 @@ impl GemfeedEntry {
     }
 
     pub fn body_mut(&mut self) -> Result<&mut String, Error> {
-        // Forces init and also returns the error if init failed.
+        // Forces init and also returns the error if init failed ...
         if let Err(error) = self.body() {
             return Err(error);
         }
 
-        // Which means that this Should Be Safe™
+        // ... which means that this Should Be Safe™.
         Ok(self
             .body
             .get_mut()
@@ -330,10 +324,9 @@ impl TryFrom<&GemtextNode> for GemfeedLink {
             to: path,
         } = node.to_owned()
         {
-            let re = Regex::new(r#"(\d\d\d\d-\d\d-\d\d)"#).unwrap();
             let path_buf = PathBuf::from(&path);
 
-            let published: Option<String> = re
+            let published: Option<String> = GEMFEED_POST_REGEX
                 .captures_at(&title, 0)
                 .map(|caps| caps.get(0))
                 .and_then(|date| date.map(|published| published.as_str().to_owned()));

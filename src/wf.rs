@@ -49,7 +49,7 @@ impl WriteFreely {
     }
 
     /// Logs the client out and renders this instance of the wrapper
-    /// unusable.n
+    /// unusable.
     pub async fn logout(mut self) -> Result<()> {
         self.client.logout().await?;
         Ok(())
@@ -91,10 +91,11 @@ impl TryFrom<&GemfeedEntry> for PostCreateRequest {
             .title(entry.title())
             .body(entry.body_as_markdown()?);
 
-        if let Some(publish_date) = published {
-            Ok(req.created(publish_date))
-        } else {
-            Ok(req)
-        }
+        let req = match published {
+            Some(publish_date) => req.created(publish_date),
+            _ => req,
+        };
+
+        Ok(req)
     }
 }
