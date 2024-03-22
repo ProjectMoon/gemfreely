@@ -18,6 +18,10 @@ use crate::Cli;
 static GEMFEED_POST_REGEX: Lazy<regex::Regex> =
     Lazy::new(|| Regex::new(r#"(\d\d\d\d-\d\d-\d\d)"#).unwrap());
 
+fn is_header(level: usize) -> bool {
+    // For some reason, Germ reports headers with an emoji as header level 0.
+    level == 0 || level == 1
+}
 fn is_gemfeed_post_link(node: &GemtextNode) -> bool {
     match node {
         GemtextNode::Link {
@@ -162,7 +166,7 @@ impl Gemfeed {
 
     fn load_from_ast(url: &Url, feed: &GemtextAst) -> Result<Gemfeed> {
         let feed_title = feed.inner().iter().find_map(|node| match node {
-            GemtextNode::Heading { level, text } if *level == (1 as usize) => Some(text),
+            GemtextNode::Heading { level, text } if is_header(*level) => Some(text),
             _ => None,
         });
 
@@ -422,6 +426,58 @@ mod gemfeed_tests {
         let ast = GemtextAst::from_string(gemfeed);
         let result = Gemfeed::load_from_ast(&base_url, &ast);
         assert!(matches!(result, Err(_)));
+        Ok(())
+    }
+
+    #[test]
+    fn parse_gemfeed_valid_if_has_title() -> Result<()> {
+        let gemfeed: String = r#"
+        # My Gemfeed
+
+        This is a gemfeed with a title.
+        => atom.xml Atom Feed
+
+        ## Posts
+
+        => post2.gmi 2023-03-05 Post 2
+        => post1.gmi 2023-02-01 Post 1
+        "#
+        .lines()
+        .map(|line| line.trim_start())
+        .map(|line| format!("{}\n", line))
+        .collect();
+
+        let base_url = Url::parse("gemini://example.com/posts")?;
+        let ast = GemtextAst::from_string(gemfeed);
+        let result = Gemfeed::load_from_ast(&base_url, &ast);
+
+        assert!(matches!(result, Ok(_)));
+        Ok(())
+    }
+
+    #[test]
+    fn parse_gemfeed_valid_if_has_title_with_emoji() -> Result<()> {
+        let gemfeed: String = r#"
+        # 🖊️ My Gemfeed
+
+        This is a gemfeed with a title.
+        => atom.xml Atom Feed
+
+        ## Posts
+
+        => post2.gmi 2023-03-05 Post 2
+        => post1.gmi 2023-02-01 Post 1
+        "#
+        .lines()
+        .map(|line| line.trim_start())
+        .map(|line| format!("{}\n", line))
+        .collect();
+
+        let base_url = Url::parse("gemini://example.com/posts")?;
+        let ast = GemtextAst::from_string(gemfeed);
+        let result = Gemfeed::load_from_ast(&base_url, &ast);
+
+        assert!(matches!(result, Ok(_)));
         Ok(())
     }
 
