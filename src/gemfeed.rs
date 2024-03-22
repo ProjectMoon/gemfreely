@@ -456,9 +456,61 @@ mod gemfeed_tests {
     }
 
     #[test]
-    fn parse_gemfeed_valid_if_has_title_with_emoji() -> Result<()> {
+    fn parse_gemfeed_valid_if_has_title_with_emoji_at_start() -> Result<()> {
         let gemfeed: String = r#"
         # 🖊️ My Gemfeed
+
+        This is a gemfeed with a title.
+        => atom.xml Atom Feed
+
+        ## Posts
+
+        => post2.gmi 2023-03-05 Post 2
+        => post1.gmi 2023-02-01 Post 1
+        "#
+        .lines()
+        .map(|line| line.trim_start())
+        .map(|line| format!("{}\n", line))
+        .collect();
+
+        let base_url = Url::parse("gemini://example.com/posts")?;
+        let ast = GemtextAst::from_string(gemfeed);
+        let result = Gemfeed::load_from_ast(&base_url, &ast);
+
+        assert!(matches!(result, Ok(_)));
+        Ok(())
+    }
+
+    #[test]
+    fn parse_gemfeed_valid_if_has_title_with_emoji_in_middle() -> Result<()> {
+        let gemfeed: String = r#"
+        # My 🖊️ Gemfeed
+
+        This is a gemfeed with a title.
+        => atom.xml Atom Feed
+
+        ## Posts
+
+        => post2.gmi 2023-03-05 Post 2
+        => post1.gmi 2023-02-01 Post 1
+        "#
+        .lines()
+        .map(|line| line.trim_start())
+        .map(|line| format!("{}\n", line))
+        .collect();
+
+        let base_url = Url::parse("gemini://example.com/posts")?;
+        let ast = GemtextAst::from_string(gemfeed);
+        let result = Gemfeed::load_from_ast(&base_url, &ast);
+
+        assert!(matches!(result, Ok(_)));
+        Ok(())
+    }
+
+    #[test]
+    fn parse_gemfeed_valid_if_has_title_with_emoji_at_end() -> Result<()> {
+        let gemfeed: String = r#"
+        # My Gemfeed 🖊️
 
         This is a gemfeed with a title.
         => atom.xml Atom Feed
