@@ -1,7 +1,6 @@
 use chrono::{DateTime, NaiveDate, Utc};
 use once_cell::sync::{Lazy, OnceCell};
 use regex::Regex;
-use std::borrow::Cow;
 use std::path::PathBuf;
 use std::result::Result as StdResult;
 use std::slice::IterMut;
@@ -10,6 +9,7 @@ use anyhow::{anyhow, Error, Result};
 use atom_syndication::{Entry as AtomEntry, Feed as AtomFeed};
 use germ::ast::{Ast as GemtextAst, Node as GemtextNode};
 use germ::convert::{self as germ_convert, Target};
+use germ::meta::Meta as GeminiMeta;
 use germ::request::blocking::request as gemini_request;
 use germ::request::Response as GeminiResponse;
 use url::Url;
@@ -20,9 +20,9 @@ static GEMFEED_POST_REGEX: Lazy<regex::Regex> =
     Lazy::new(|| Regex::new(r#"(\d\d\d\d-\d\d-\d\d)"#).unwrap());
 
 fn is_header(level: usize) -> bool {
-    // For some reason, Germ reports headers with an emoji as header level 0.
-    level == 0 || level == 1
+    level == 1
 }
+
 fn is_gemfeed_post_link(node: &GemtextNode) -> bool {
     match node {
         GemtextNode::Link {
@@ -58,17 +58,17 @@ impl GemfeedType {
     const ATOM_MIME_TYPES: &'static [&'static str] = &["text/xml", "application/atom+xml"];
 }
 
-impl From<Cow<'_, str>> for GemfeedType {
+impl From<GeminiMeta> for GemfeedType {
     // See https://github.com/gemrest/germ/issues/2. Will be converted
     // to use germ Meta struct after this is fixed.
-    fn from(mime: Cow<'_, str>) -> Self {
+    fn from(meta: GeminiMeta) -> Self {
         let is_atom = Self::ATOM_MIME_TYPES
             .into_iter()
-            .any(|atom_mime| mime.contains(atom_mime));
+            .any(|atom_mime| meta.mime().contains(atom_mime));
 
         if is_atom {
             GemfeedType::Atom
-        } else if mime.contains("text/gemini") {
+        } else if meta.mime().contains("text/gemini") {
             GemfeedType::Gemtext
         } else {
             GemfeedType::Unknown
@@ -128,7 +128,9 @@ impl Gemfeed {
 
     pub fn load_with_settings(url: &Url, settings: &GemfeedParserSettings) -> Result<Gemfeed> {
         let resp = gemini_request(url)?;
-        match GemfeedType::from(resp.meta()) {
+        let meta = GeminiMeta::from_string(resp.meta());
+
+        match GemfeedType::from(meta) {
             GemfeedType::Gemtext => Self::load_from_gemfeed(url, resp),
             GemfeedType::Atom => Self::load_from_atom(url, resp, &settings),
             _ => Err(anyhow!(
