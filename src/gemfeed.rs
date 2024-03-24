@@ -10,7 +10,8 @@ use anyhow::{anyhow, Error, Result};
 use atom_syndication::{Entry as AtomEntry, Feed as AtomFeed};
 use germ::ast::{Ast as GemtextAst, Node as GemtextNode};
 use germ::convert::{self as germ_convert, Target};
-use germ::request::{request as gemini_request, Response as GeminiResponse};
+use germ::request::blocking::request as gemini_request;
+use germ::request::Response as GeminiResponse;
 use url::Url;
 
 use crate::Cli;

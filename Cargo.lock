@@ -478,12 +478,14 @@ dependencies = [
 
 [[package]]
 name = "germ"
-version = "0.3.10"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1a3b6e49850abb8a060002e2a3ec9a7e49626fc10192a93703f54e2589b9361"
+checksum = "6a44d21599b2d90136a258162d244267909f00073c4dce7ebda5a91b10f93f59"
 dependencies = [
  "anyhow",
  "rustls 0.21.10",
+ "tokio 1.36.0",
+ "tokio-rustls 0.24.1",
  "url",
 ]
 
