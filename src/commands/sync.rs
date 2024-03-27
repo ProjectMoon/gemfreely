@@ -94,13 +94,18 @@ async fn sync_gemlog(
 
     let mut count = 0;
     for entry in gemlogs_to_post {
-        let post = wf.create_post(entry).await?;
+        let result = wf.create_post(entry).await;
         count += 1;
-        println!(
-            "Created post: {} [title={}]",
-            post.id,
-            post.title.unwrap_or_default()
-        );
+
+        if let Ok(post) = result {
+            println!(
+                "Created post: {} [title={}]",
+                post.id,
+                post.title.unwrap_or_default()
+            );
+        } else {
+            println!("Error creating post: {} ", result.unwrap_err());
+        }
     }
 
     println!("Post synchronization complete [posts synced={}]", count);

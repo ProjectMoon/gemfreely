@@ -99,3 +99,24 @@ impl TryFrom<&GemfeedEntry> for PostCreateRequest {
         Ok(req)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn tryfrom_to_request_handles_gt_lt() {
+        let gemtext: String = r#"
+        # This is gemtext <dyn>
+
+        With a > in it.
+        "#
+        .lines()
+        .map(|line| line.trim_start())
+        .map(|line| format!("{}\n", line))
+        .collect();
+
+        let entry = GemfeedEntry::default().with_body(gemtext);
+        let result = PostCreateRequest::try_from(entry);
+        assert!(result.is_ok());
+    }
+}

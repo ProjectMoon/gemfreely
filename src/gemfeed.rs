@@ -224,8 +224,31 @@ pub struct GemfeedEntry {
     body: OnceCell<String>,
 }
 
+impl Default for GemfeedEntry {
+    fn default() -> Self {
+        GemfeedEntry {
+            body: OnceCell::default(),
+            title: String::default(),
+            slug: String::default(),
+            url: Url::parse("gemini://example.com").unwrap(),
+            published: Option::default(),
+        }
+    }
+}
+
 #[allow(dead_code)]
 impl GemfeedEntry {
+    /// Consumes self to forcibly set body to the given string.
+    pub fn with_body(self, body: String) -> GemfeedEntry {
+        GemfeedEntry {
+            title: self.title,
+            slug: self.slug,
+            published: self.published,
+            url: self.url,
+            body: OnceCell::from(body)
+        }
+    }
+
     pub fn from_gemtext(base_url: &Url, node: &GemtextNode) -> Result<GemfeedEntry> {
         let link = GemfeedLink::try_from(node)?;
         // Gemfeeds have only the date--according to spec, it should
@@ -406,6 +429,63 @@ impl TryFrom<&AtomEntry> for GemfeedLink {
 }
 
 #[cfg(test)]
+mod gemfeed_entry_tests {
+    use super::*;
+
+    #[test]
+    fn parse_markdown_with_gt_lt_title() -> Result<()> {
+        let gemtext: String = r#"
+        # This is gemtext <dyn>
+
+        With a > in it.
+        "#
+        .lines()
+        .map(|line| line.trim_start())
+        .map(|line| format!("{}\n", line))
+        .collect();
+
+        let entry = GemfeedEntry {
+            published: None,
+            slug: "".to_string(),
+            title: "".to_string(),
+            url: Url::parse("gemini://example.com")?,
+            body: OnceCell::from(gemtext),
+        };
+
+        let result = entry.body_as_markdown();
+        assert!(result.is_ok());
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_markdown_with_gt_lt() -> Result<()> {
+        let gemtext: String = r#"
+        # This is gemtext
+
+        With a < in > it.
+        "#
+        .lines()
+        .map(|line| line.trim_start())
+        .map(|line| format!("{}\n", line))
+        .collect();
+
+        let entry = GemfeedEntry {
+            published: None,
+            slug: "".to_string(),
+            title: "".to_string(),
+            url: Url::parse("gemini://example.com")?,
+            body: OnceCell::from(gemtext),
+        };
+
+        let result = entry.body_as_markdown();
+        assert!(result.is_ok());
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
 mod gemfeed_tests {
     use super::*;
 
@@ -572,6 +652,30 @@ mod gemfeed_tests {
 
         => post2.gmi 2023-03-05 Post 2
         => post1.gmi 2023-02-01 Post 1
+        "#
+        .lines()
+        .map(|line| line.trim_start())
+        .map(|line| format!("{}\n", line))
+        .collect();
+
+        let base_url = Url::parse("gemini://example.com/posts")?;
+        let ast = GemtextAst::from_string(gemfeed);
+        let results = parse_gemfeed(&base_url, &ast)?;
+        assert_eq!(results.len(), 2);
+        Ok(())
+    }
+
+    #[test]
+    fn parse_gemfeed_handles_gt_lt() -> Result<()> {
+        let gemfeed: String = r#"
+        # My Gemfeed
+
+        This is a gemfeed.
+
+        ## Posts
+
+        => post2.gmi 2023-03-05 Post 2 <dyn>
+        => post1.gmi 2023-02-01 Post 1 >
         "#
         .lines()
         .map(|line| line.trim_start())
