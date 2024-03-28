@@ -4,6 +4,7 @@ use commands::{login::LoginCommand, logout::LogoutCommand};
 
 use anyhow::Result;
 
+mod webmentions;
 mod gemfeed;
 mod sanitization;
 mod wf;
