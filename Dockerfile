@@ -3,3 +3,5 @@
 FROM rust:1.76-slim
 RUN rustup component add rustfmt
 RUN cargo install --locked cargo-deny
+RUN apt update && apt install -y pkg-config
+RUN apt install -y libssl-dev
